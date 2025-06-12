@@ -1,0 +1,323 @@
+/* Apple GBBS Terminal Style */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: #000;
+    color: #00ff00;
+    font-family: 'VT323', monospace;
+    font-size: 16px;
+    line-height: 1.2;
+    overflow: hidden;
+    height: 100vh;
+}
+
+.terminal-container {
+    width: 100vw;
+    height: 100vh;
+    background: #001100;
+    display: flex;
+    flex-direction: column;
+    border: 2px solid #00ff00;
+    position: relative;
+}
+
+.terminal-header {
+    background: #00ff00;
+    color: #000;
+    height: 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 10px;
+    font-weight: bold;
+}
+
+.terminal-controls {
+    display: flex;
+    gap: 5px;
+}
+
+.terminal-btn {
+    width: 20px;
+    height: 20px;
+    background: #000;
+    color: #00ff00;
+    border: 1px solid #00ff00;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+}
+
+.terminal-btn:hover {
+    background: #00ff00;
+    color: #000;
+}
+
+.terminal-screen {
+    flex: 1;
+    background: #000;
+    color: #00ff00;
+    padding: 10px;
+    position: relative;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #00ff00 #000;
+}
+
+.terminal-screen::-webkit-scrollbar {
+    width: 8px;
+}
+
+.terminal-screen::-webkit-scrollbar-track {
+    background: #000;
+}
+
+.terminal-screen::-webkit-scrollbar-thumb {
+    background: #00ff00;
+    border-radius: 4px;
+}
+
+.terminal-output {
+    min-height: calc(100% - 30px);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.line {
+    margin: 2px 0;
+    min-height: 20px;
+}
+
+.boot-sequence {
+    text-align: center;
+    margin-top: 50px;
+}
+
+.boot-sequence .line {
+    margin: 10px 0;
+    font-size: 18px;
+}
+
+.terminal-input-line {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    right: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.prompt {
+    margin-right: 5px;
+    font-weight: bold;
+}
+
+.terminal-input {
+    background: transparent;
+    border: none;
+    color: #00ff00;
+    font-family: inherit;
+    font-size: inherit;
+    outline: none;
+    flex: 1;
+    caret-color: transparent;
+}
+
+.cursor {
+    margin-left: 2px;
+    background: #00ff00;
+    color: #000;
+}
+
+.blink {
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+.status-bar {
+    background: #00ff00;
+    color: #000;
+    height: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+/* BBS Menu Styles */
+.menu-header {
+    color: #00ff00;
+    text-align: center;
+    border: 1px solid #00ff00;
+    padding: 10px;
+    margin: 20px 0;
+    background: #003300;
+}
+
+.menu-option {
+    padding: 5px 0;
+    border-left: 3px solid transparent;
+}
+
+.menu-option:hover {
+    border-left-color: #00ff00;
+    background: #002200;
+}
+
+.menu-option.selected {
+    border-left-color: #00ff00;
+    background: #004400;
+}
+
+.user-stats {
+    float: right;
+    margin: 10px;
+    padding: 10px;
+    border: 1px solid #00ff00;
+    background: #001100;
+}
+
+.message-board {
+    margin: 10px 0;
+    padding: 10px;
+    border: 1px solid #00ff00;
+}
+
+.message-header {
+    background: #004400;
+    padding: 5px;
+    margin-bottom: 5px;
+}
+
+.file-list {
+    list-style: none;
+}
+
+.file-list li {
+    padding: 2px 0;
+    border-bottom: 1px dotted #004400;
+}
+
+.file-list li:hover {
+    background: #002200;
+}
+
+/* Login Modal */
+.login-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: #001100;
+    border: 2px solid #00ff00;
+    padding: 30px;
+    text-align: center;
+    min-width: 300px;
+}
+
+.modal-content h2 {
+    margin-bottom: 20px;
+    color: #00ff00;
+}
+
+.modal-content input {
+    display: block;
+    width: 100%;
+    margin: 10px 0;
+    padding: 10px;
+    background: #000;
+    border: 1px solid #00ff00;
+    color: #00ff00;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.modal-content button {
+    margin: 10px 5px;
+    padding: 10px 20px;
+    background: #000;
+    border: 1px solid #00ff00;
+    color: #00ff00;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.modal-content button:hover {
+    background: #00ff00;
+    color: #000;
+}
+
+/* ASCII Art Support */
+.ascii-art {
+    font-family: 'Courier New', monospace;
+    white-space: pre;
+    line-height: 1;
+}
+
+/* ANSI Color Support */
+.ansi-black { color: #000; }
+.ansi-red { color: #ff0000; }
+.ansi-green { color: #00ff00; }
+.ansi-yellow { color: #ffff00; }
+.ansi-blue { color: #0000ff; }
+.ansi-magenta { color: #ff00ff; }
+.ansi-cyan { color: #00ffff; }
+.ansi-white { color: #ffffff; }
+
+.ansi-bg-black { background-color: #000; }
+.ansi-bg-red { background-color: #ff0000; }
+.ansi-bg-green { background-color: #00ff00; }
+.ansi-bg-yellow { background-color: #ffff00; }
+.ansi-bg-blue { background-color: #0000ff; }
+.ansi-bg-magenta { background-color: #ff00ff; }
+.ansi-bg-cyan { background-color: #00ffff; }
+.ansi-bg-white { background-color: #ffffff; }
+
+.ansi-bold { font-weight: bold; }
+.ansi-underline { text-decoration: underline; }
+.ansi-blink { animation: blink 1s infinite; }
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    body {
+        font-size: 14px;
+    }
+    
+    .terminal-container {
+        border: 1px solid #00ff00;
+    }
+    
+    .terminal-header {
+        height: 25px;
+        font-size: 12px;
+    }
+    
+    .status-bar {
+        height: 20px;
+        font-size: 12px;
+    }
+    
+    .modal-content {
+        margin: 20px;
+        padding: 20px;
+    }
+}

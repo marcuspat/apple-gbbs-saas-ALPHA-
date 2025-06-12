@@ -1,0 +1,29 @@
+{
+  "name": "retrobbs-saas",
+  "version": "1.0.0",
+  "description": "RetroBBS SaaS - Apple GBBS Experience",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "build": "echo 'No build step required'",
+    "vercel-build": "echo 'Build complete'"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "keywords": [
+    "bbs",
+    "retro",
+    "apple",
+    "gbbs",
+    "saas",
+    "bulletin-board"
+  ],
+  "author": "RetroBBS SaaS",
+  "license": "MIT"
+}

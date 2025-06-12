@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RetroBBS - Classic Apple GBBS Experience</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="terminal-container">
+        <div class="terminal-header">
+            <div class="terminal-title">RetroBBS v2.4 - Apple GBBS Compatible</div>
+            <div class="terminal-controls">
+                <button class="terminal-btn minimize">_</button>
+                <button class="terminal-btn maximize">□</button>
+                <button class="terminal-btn close">×</button>
+            </div>
+        </div>
+        
+        <div class="terminal-screen">
+            <div class="terminal-output" id="terminal-output">
+                <div class="boot-sequence">
+                    <div class="line">APPLE II COMPATIBLE BBS SYSTEM</div>
+                    <div class="line">RetroBBS v2.4 - Web Edition</div>
+                    <div class="line">Copyright (c) 2024 RetroBBS SaaS</div>
+                    <div class="line">80 COLUMN DISPLAY ACTIVE</div>
+                    <div class="line blink">PRESS ANY KEY TO CONTINUE...</div>
+                </div>
+            </div>
+            
+            <div class="terminal-input-line">
+                <span class="prompt">]</span>
+                <input type="text" class="terminal-input" id="terminal-input" autofocus>
+                <span class="cursor blink">█</span>
+            </div>
+        </div>
+        
+        <div class="status-bar">
+            <span>ONLINE</span>
+            <span>BAUD: 9600</span>
+            <span>80 COL</span>
+            <span>CAPS: OFF</span>
+        </div>
+    </div>
+
+    <div class="login-modal" id="login-modal">
+        <div class="modal-content">
+            <h2>Welcome to RetroBBS</h2>
+            <form id="login-form">
+                <input type="text" placeholder="Username" id="username" required>
+                <input type="password" placeholder="Password" id="password" required>
+                <button type="submit">Login</button>
+                <button type="button" id="guest-login">Guest Access</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="terminal.js"></script>
+    <script src="bbs.js"></script>
+</body>
+</html>
