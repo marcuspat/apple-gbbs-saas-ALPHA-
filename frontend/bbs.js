@@ -178,9 +178,13 @@ class BBSApp {
     async getMessageBoards() {
         try {
             const response = await fetch(`${this.apiUrl}/boards`);
-            return await response.json();
+            if (response.ok) {
+                return await response.json();
+            } else {
+                throw new Error('API not accessible');
+            }
         } catch (error) {
-            console.error('Error fetching message boards:', error);
+            console.error('Error fetching message boards, using mock data:', error);
             return this.getMockMessageBoards();
         }
     }
@@ -188,9 +192,13 @@ class BBSApp {
     async getMessages(boardId) {
         try {
             const response = await fetch(`${this.apiUrl}/boards/${boardId}/messages`);
-            return await response.json();
+            if (response.ok) {
+                return await response.json();
+            } else {
+                throw new Error('API not accessible');
+            }
         } catch (error) {
-            console.error('Error fetching messages:', error);
+            console.error('Error fetching messages, using mock data:', error);
             return this.getMockMessages();
         }
     }
@@ -216,9 +224,13 @@ class BBSApp {
     async getFiles(areaId) {
         try {
             const response = await fetch(`${this.apiUrl}/files/${areaId}`);
-            return await response.json();
+            if (response.ok) {
+                return await response.json();
+            } else {
+                throw new Error('API not accessible');
+            }
         } catch (error) {
-            console.error('Error fetching files:', error);
+            console.error('Error fetching files, using mock data:', error);
             return this.getMockFiles();
         }
     }
@@ -273,6 +285,77 @@ class BBSApp {
                 type: 'chat',
                 data: { message }
             }));
+        }
+    }
+    
+    // Door games API methods
+    async getGames() {
+        try {
+            const response = await fetch(`${this.apiUrl}/games`);
+            if (response.ok) {
+                return await response.json();
+            } else {
+                throw new Error('API not accessible');
+            }
+        } catch (error) {
+            console.error('Error fetching games, using mock data:', error);
+            return [
+                { id: 1, name: 'Guess the Number', description: 'Classic number guessing game' },
+                { id: 2, name: 'Star Trek', description: 'Navigate space and battle Klingons' },
+                { id: 3, name: 'Hangman', description: 'Word guessing game' }
+            ];
+        }
+    }
+    
+    async startGame(gameId) {
+        try {
+            const token = localStorage.getItem('bbsToken');
+            const response = await fetch(`${this.apiUrl}/games/${gameId}/start`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('Error starting game:', error);
+            throw error;
+        }
+    }
+    
+    async sendGameAction(sessionId, action, data) {
+        try {
+            const token = localStorage.getItem('bbsToken');
+            const response = await fetch(`${this.apiUrl}/games/sessions/${sessionId}/move`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ action, data })
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('Error sending game action:', error);
+            throw error;
+        }
+    }
+    
+    async endGame(sessionId) {
+        try {
+            const token = localStorage.getItem('bbsToken');
+            const response = await fetch(`${this.apiUrl}/games/sessions/${sessionId}/end`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('Error ending game:', error);
+            throw error;
         }
     }
     
@@ -373,5 +456,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         // Auto-hide login modal for demo and go straight to welcome
         document.getElementById('login-modal').style.display = 'none';
+        // Ensure terminal is initialized and show welcome
+        if (window.terminal) {
+            window.terminal.loginAsGuest();
+        }
     }, 100);
 });

@@ -94,6 +94,15 @@ class Terminal {
             case 'games':
                 this.handleGameCommand(command);
                 break;
+            case 'chat':
+                this.handleChatCommand(command);
+                break;
+            case 'registration':
+                this.handleRegistrationCommand(command);
+                break;
+            case 'game':
+                this.handleGameSessionCommand(command);
+                break;
             default:
                 this.writeLine('UNKNOWN MENU STATE');
                 this.showMainMenu();
@@ -198,16 +207,139 @@ class Terminal {
         
         if (cmd === 'q' || cmd === 'quit') {
             this.showMainMenu();
-        } else if (cmd === '1') {
-            this.playGame('GUESS');
-        } else if (cmd === '2') {
-            this.playGame('TREK');
-        } else if (cmd === '3') {
-            this.playGame('HANGMAN');
         } else {
-            this.writeLine('SELECT GAME NUMBER OR Q)UIT');
-            this.showGamePrompt();
+            const gameNum = parseInt(cmd);
+            if (gameNum > 0 && this.availableGames && gameNum <= this.availableGames.length) {
+                const game = this.availableGames[gameNum - 1];
+                this.startGame(game);
+            } else {
+                this.writeLine('INVALID GAME NUMBER. SELECT GAME NUMBER OR Q)UIT');
+                this.showGamePrompt();
+            }
         }
+    }
+    
+    async startGame(game) {
+        this.writeLine('');
+        this.writeLine(`STARTING ${game.name.toUpperCase()}...`);
+        
+        try {
+            const session = await window.bbsApp.startGame(game.id);
+            if (session.sessionId) {
+                this.currentGameSession = session.sessionId;
+                this.currentGameId = game.id;
+                this.currentMenu = 'game';
+                
+                this.clearScreen();
+                this.writeHTML(`
+                    <div class="menu-header">
+                        ╔══════════════════════════════════════════════════════════════════════════════╗
+                        ║                            ${game.name.toUpperCase().padEnd(48)}           ║
+                        ╚══════════════════════════════════════════════════════════════════════════════╝
+                    </div>
+                `);
+                
+                this.writeLine('');
+                this.writeLine(session.message || 'Game started!');
+                this.writeLine('');
+                this.writeLine('Type your commands below. Type QUIT to exit game.');
+                this.writeLine('');
+                
+                // Start the game by sending initial action
+                this.sendGameAction('start', {});
+            }
+        } catch (error) {
+            this.writeLine('FAILED TO START GAME. RETURNING TO GAMES MENU...');
+            setTimeout(() => this.showGames(), 2000);
+        }
+    }
+    
+    handleGameSessionCommand(command) {
+        const cmd = command.toLowerCase();
+        
+        if (cmd === 'quit' || cmd === 'q') {
+            this.endGame();
+            return;
+        }
+        
+        // If game is completed, any key returns to games menu
+        if (this.gameCompleted) {
+            this.gameCompleted = false;
+            this.endGame();
+            return;
+        }
+        
+        // Parse game-specific commands
+        if (this.currentGameId) {
+            const parts = cmd.split(' ');
+            const action = parts[0];
+            const data = {};
+            
+            // Handle different game types
+            if (action === 'guess' && parts[1]) {
+                data.number = parts[1];
+            } else if (action === 'fire' || action === 'move' || action === 'scan') {
+                // Trek commands
+            } else if (parts[0] && parts[0].length === 1) {
+                // Hangman letter guess
+                data.letter = parts[0];
+                this.sendGameAction('guess', data);
+                return;
+            } else if (!isNaN(parseInt(cmd))) {
+                // Number guess
+                data.number = cmd;
+                this.sendGameAction('guess', data);
+                return;
+            }
+            
+            this.sendGameAction(action, data);
+        }
+    }
+    
+    async sendGameAction(action, data) {
+        try {
+            const response = await window.bbsApp.sendGameAction(this.currentGameSession, action, data);
+            
+            if (response.response) {
+                this.writeLine('');
+                this.writeLine(response.response.message);
+                
+                if (response.response.word) {
+                    this.writeLine(`WORD: ${response.response.word}`);
+                }
+                
+                if (response.response.status) {
+                    this.writeLine(response.response.status);
+                }
+                
+                if (response.response.prompt) {
+                    this.writeLine('');
+                    this.writeLine(response.response.prompt);
+                }
+                
+                if (response.response.completed) {
+                    this.writeLine('');
+                    this.writeLine('GAME COMPLETED! PRESS ANY KEY TO RETURN TO GAMES...');
+                    this.gameCompleted = true;
+                }
+            }
+        } catch (error) {
+            this.writeLine('GAME ERROR. RETURNING TO GAMES MENU...');
+            setTimeout(() => this.showGames(), 2000);
+        }
+    }
+    
+    async endGame() {
+        if (this.currentGameSession) {
+            try {
+                await window.bbsApp.endGame(this.currentGameSession);
+            } catch (error) {
+                console.error('Failed to end game session:', error);
+            }
+            this.currentGameSession = null;
+            this.currentGameId = null;
+        }
+        this.showGames();
     }
     
     clearScreen() {
@@ -313,11 +445,26 @@ class Terminal {
     }
     
     showNewUserRegistration() {
+        this.clearScreen();
+        this.writeHTML(`
+            <div class="menu-header">
+                ╔══════════════════════════════════════════════════════════════════════════════╗
+                ║                           NEW USER REGISTRATION                             ║
+                ╚══════════════════════════════════════════════════════════════════════════════╝
+            </div>
+        `);
+        
         this.writeLine('');
-        this.writeLine('NEW USER REGISTRATION COMING SOON!');
-        this.writeLine('FOR NOW, USE GUEST ACCESS OR CONTACT SYSOP');
+        this.writeLine('CREATE YOUR NEW BBS ACCOUNT');
         this.writeLine('');
-        this.showWelcomePrompt();
+        this.writeLine('PLEASE PROVIDE THE FOLLOWING INFORMATION:');
+        this.writeLine('');
+        
+        this.currentMenu = 'registration';
+        this.registrationStep = 'username';
+        this.registrationData = {};
+        
+        this.writeLine('ENTER YOUR DESIRED USERNAME (3-15 CHARACTERS):');
     }
     
     showMessageBoards() {
@@ -380,7 +527,7 @@ class Terminal {
         this.currentMenu = 'files';
     }
     
-    showGames() {
+    async showGames() {
         this.clearScreen();
         this.writeHTML(`
             <div class="menu-header">
@@ -391,15 +538,40 @@ class Terminal {
         `);
         
         this.writeLine('');
-        this.writeLine('AVAILABLE GAMES:');
-        this.writeLine('');
-        this.writeLine('1) GUESS THE NUMBER  - CLASSIC GUESSING GAME');
-        this.writeLine('2) STAR TREK         - SPACE EXPLORATION');
-        this.writeLine('3) HANGMAN           - WORD GUESSING GAME');
-        this.writeLine('');
-        this.writeLine('MORE GAMES COMING SOON!');
-        this.writeLine('');
-        this.writeLine('SELECT GAME NUMBER OR Q)UIT:');
+        this.writeLine('LOADING AVAILABLE GAMES...');
+        
+        try {
+            const games = await window.bbsApp.getGames();
+            this.clearScreen();
+            this.writeHTML(`
+                <div class="menu-header">
+                    ╔══════════════════════════════════════════════════════════════════════════════╗
+                    ║                              DOOR GAMES                                     ║
+                    ╚══════════════════════════════════════════════════════════════════════════════╝
+                </div>
+            `);
+            
+            this.writeLine('');
+            this.writeLine('AVAILABLE GAMES:');
+            this.writeLine('');
+            
+            games.forEach((game, index) => {
+                const num = (index + 1).toString().padStart(2);
+                this.writeLine(`${num}) ${game.name.padEnd(20)} - ${game.description}`);
+            });
+            
+            this.writeLine('');
+            this.writeLine('SELECT GAME NUMBER OR Q)UIT:');
+            this.availableGames = games;
+        } catch (error) {
+            this.writeLine('FAILED TO LOAD GAMES. USING DEFAULTS...');
+            this.writeLine('');
+            this.writeLine('1) GUESS THE NUMBER  - CLASSIC GUESSING GAME');
+            this.writeLine('2) STAR TREK         - SPACE EXPLORATION');
+            this.writeLine('3) HANGMAN           - WORD GUESSING GAME');
+            this.writeLine('');
+            this.writeLine('SELECT GAME NUMBER OR Q)UIT:');
+        }
         
         this.showGamePrompt();
     }
@@ -423,11 +595,166 @@ class Terminal {
     }
     
     showChat() {
+        this.clearScreen();
+        this.writeHTML(`
+            <div class="menu-header">
+                ╔══════════════════════════════════════════════════════════════════════════════╗
+                ║                              CHAT ROOM                                      ║
+                ║                         USERS IN ROOM: <span class="user-count">1</span>                               ║
+                ╚══════════════════════════════════════════════════════════════════════════════╝
+            </div>
+        `);
+        
         this.writeLine('');
-        this.writeLine('REAL-TIME CHAT FEATURE COMING SOON!');
-        this.writeLine('THIS WILL SUPPORT MULTI-USER CHAT ROOMS');
+        this.writeLine('ENTERING GENERAL CHAT ROOM...');
+        this.writeLine('TYPE YOUR MESSAGE AND PRESS ENTER TO SEND');
+        this.writeLine('TYPE /QUIT TO RETURN TO MAIN MENU');
+        this.writeLine('TYPE /HELP FOR CHAT COMMANDS');
         this.writeLine('');
-        this.showMainMenuPrompt();
+        this.writeLine('───────────────────────────────────────────────────────────────');
+        
+        // Join chat room
+        if (window.bbsApp && window.bbsApp.socket) {
+            window.bbsApp.socket.send(JSON.stringify({
+                type: 'join_chat',
+                data: { room: 'general' }
+            }));
+        }
+        
+        this.currentMenu = 'chat';
+        this.showChatPrompt();
+    }
+    
+    showChatPrompt() {
+        this.writeLine('');
+        this.currentMenu = 'chat';
+    }
+    
+    handleChatCommand(command) {
+        const cmd = command.toLowerCase();
+        
+        if (cmd === '/quit' || cmd === '/q') {
+            // Leave chat room
+            if (window.bbsApp && window.bbsApp.socket) {
+                window.bbsApp.socket.send(JSON.stringify({
+                    type: 'leave_chat'
+                }));
+            }
+            this.showMainMenu();
+        } else if (cmd === '/help' || cmd === '/h') {
+            this.showChatHelp();
+        } else if (cmd.startsWith('/')) {
+            this.writeLine('UNKNOWN COMMAND. TYPE /HELP FOR COMMANDS');
+        } else {
+            // Send chat message
+            if (window.bbsApp) {
+                window.bbsApp.sendChatMessage(command);
+            }
+        }
+    }
+    
+    showChatHelp() {
+        this.writeLine('');
+        this.writeLine('CHAT COMMANDS:');
+        this.writeLine('  /QUIT or /Q  - RETURN TO MAIN MENU');
+        this.writeLine('  /HELP or /H  - SHOW THIS HELP');
+        this.writeLine('  /USERS       - LIST USERS IN ROOM');
+        this.writeLine('  /ME <action> - PERFORM AN ACTION');
+        this.writeLine('');
+    }
+    
+    handleRegistrationCommand(command) {
+        const input = command.trim();
+        
+        switch (this.registrationStep) {
+            case 'username':
+                if (input.length < 3 || input.length > 15) {
+                    this.writeLine('USERNAME MUST BE 3-15 CHARACTERS. TRY AGAIN:');
+                    return;
+                }
+                this.registrationData.username = input;
+                this.registrationStep = 'email';
+                this.writeLine('');
+                this.writeLine('ENTER YOUR EMAIL ADDRESS:');
+                break;
+                
+            case 'email':
+                if (!input.includes('@') || !input.includes('.')) {
+                    this.writeLine('INVALID EMAIL FORMAT. TRY AGAIN:');
+                    return;
+                }
+                this.registrationData.email = input;
+                this.registrationStep = 'password';
+                this.writeLine('');
+                this.writeLine('ENTER YOUR PASSWORD (MINIMUM 6 CHARACTERS):');
+                break;
+                
+            case 'password':
+                if (input.length < 6) {
+                    this.writeLine('PASSWORD TOO SHORT. MINIMUM 6 CHARACTERS:');
+                    return;
+                }
+                this.registrationData.password = input;
+                this.registrationStep = 'confirm';
+                this.writeLine('');
+                this.writeLine('CONFIRM YOUR PASSWORD:');
+                break;
+                
+            case 'confirm':
+                if (input !== this.registrationData.password) {
+                    this.writeLine('PASSWORDS DO NOT MATCH. ENTER PASSWORD AGAIN:');
+                    this.registrationStep = 'password';
+                    return;
+                }
+                this.submitRegistration();
+                break;
+        }
+    }
+    
+    async submitRegistration() {
+        this.writeLine('');
+        this.writeLine('CREATING YOUR ACCOUNT...');
+        
+        try {
+            const response = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(this.registrationData)
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                this.writeLine('');
+                this.writeLine('REGISTRATION SUCCESSFUL!');
+                this.writeLine(`WELCOME, ${data.user.username}!`);
+                this.writeLine('');
+                
+                // Store session token
+                localStorage.setItem('bbsToken', data.token);
+                this.currentUser = data.user.username;
+                
+                // Update WebSocket connection with user info
+                if (window.bbsApp) {
+                    window.bbsApp.user = data.user;
+                }
+                
+                setTimeout(() => this.showMainMenu(), 2000);
+            } else {
+                this.writeLine('');
+                this.writeLine(`REGISTRATION FAILED: ${data.message}`);
+                this.writeLine('');
+                setTimeout(() => this.showWelcome(), 2000);
+            }
+        } catch (error) {
+            console.error('Registration error:', error);
+            this.writeLine('');
+            this.writeLine('REGISTRATION FAILED: NETWORK ERROR');
+            this.writeLine('');
+            setTimeout(() => this.showWelcome(), 2000);
+        }
     }
     
     showStats() {

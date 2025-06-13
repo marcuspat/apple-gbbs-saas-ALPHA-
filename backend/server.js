@@ -8,8 +8,12 @@ const bcrypt = require('bcrypt');
 const sqlite3 = require('sqlite3').verbose();
 const multer = require('multer');
 const rateLimit = require('express-rate-limit');
+const fs = require('fs');
 const AIService = require('./ai-service');
 const PaymentService = require('./payment-service');
+const ChatManager = require('./src/chat-manager');
+const EmailService = require('./email-service');
+const database = require('./database');
 
 const app = express();
 const server = http.createServer(app);
@@ -18,6 +22,13 @@ const wss = new WebSocket.Server({ server });
 // Initialize services
 const aiService = new AIService();
 const paymentService = new PaymentService();
+const chatManager = new ChatManager();
+const emailService = new EmailService();
+
+// Ensure uploads directory exists
+if (!fs.existsSync('./uploads')) {
+    fs.mkdirSync('./uploads', { recursive: true });
+}
 
 // Configuration
 const PORT = process.env.PORT || 3000;
@@ -106,6 +117,55 @@ db.serialize(() => {
         FOREIGN KEY (user_id) REFERENCES users (id)
     )`);
     
+    // Payments table
+    db.run(`CREATE TABLE IF NOT EXISTS payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        subscription_id TEXT,
+        amount INTEGER,
+        currency TEXT,
+        status TEXT,
+        stripe_invoice_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+    )`);
+    
+    // Password reset tokens table
+    db.run(`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        token TEXT UNIQUE,
+        expires_at DATETIME,
+        used BOOLEAN DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+    )`);
+    
+    // Door games table
+    db.run(`CREATE TABLE IF NOT EXISTS door_games (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        command TEXT,
+        active BOOLEAN DEFAULT 1,
+        category TEXT DEFAULT 'general',
+        max_players INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+    
+    // Game sessions table
+    db.run(`CREATE TABLE IF NOT EXISTS game_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        game_id INTEGER,
+        session_data TEXT,
+        status TEXT DEFAULT 'active',
+        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id),
+        FOREIGN KEY (game_id) REFERENCES door_games (id)
+    )`);
+    
     // Insert default boards
     db.run(`INSERT OR IGNORE INTO boards (name, description) VALUES 
         ('General Discussion', 'General chat and discussions'),
@@ -113,6 +173,14 @@ db.serialize(() => {
         ('BBS Nostalgia', 'Share memories of the BBS era'),
         ('Programming', 'Programming discussions and help'),
         ('Apple II Help', 'Help and support for Apple II systems')`);
+    
+    // Insert default door games
+    db.run(`INSERT OR IGNORE INTO door_games (name, description, command, category) VALUES 
+        ('Guess the Number', 'Classic number guessing game', 'GUESS', 'classic'),
+        ('Star Trek', 'Navigate space and battle Klingons', 'TREK', 'adventure'),
+        ('Hangman', 'Word guessing game', 'HANGMAN', 'word'),
+        ('Adventure Quest', 'Text-based adventure game', 'ADVENTURE', 'adventure'),
+        ('Trivia Challenge', 'Test your knowledge', 'TRIVIA', 'quiz')`);
     
     // Create default admin user
     bcrypt.hash('admin123', SALT_ROUNDS, (err, hash) => {
@@ -202,6 +270,12 @@ function handleWebSocketMessage(sessionId, data) {
         case 'chat':
             handleChatMessage(sessionId, data.data);
             break;
+        case 'join_chat':
+            handleJoinChat(sessionId, data.data);
+            break;
+        case 'leave_chat':
+            handleLeaveChat(sessionId);
+            break;
         case 'analytics':
             handleAnalytics(sessionId, data.data);
             break;
@@ -214,21 +288,69 @@ function handleChatMessage(sessionId, data) {
     const connection = connectedUsers.get(sessionId);
     if (!connection || !data.message) return;
     
-    const chatMessage = {
-        type: 'chat',
-        data: {
-            username: connection.user?.username || 'GUEST',
-            message: data.message,
-            timestamp: new Date().toISOString()
-        }
-    };
+    const username = connection.user?.username || 'GUEST';
+    const result = chatManager.sendMessage(sessionId, data.message, username);
     
-    // Broadcast to all connected users
-    connectedUsers.forEach((conn, id) => {
-        if (conn.ws.readyState === WebSocket.OPEN) {
-            conn.ws.send(JSON.stringify(chatMessage));
-        }
-    });
+    if (result.success) {
+        const chatMessage = {
+            type: 'chat',
+            data: result.message
+        };
+        
+        // Send to all recipients in the room
+        result.recipients.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(chatMessage));
+            }
+        });
+    }
+}
+
+function handleJoinChat(sessionId, data) {
+    const connection = connectedUsers.get(sessionId);
+    if (!connection) return;
+    
+    const roomName = data.room || 'general';
+    const result = chatManager.joinRoom(sessionId, roomName, connection.ws);
+    
+    if (result.success) {
+        connection.ws.send(JSON.stringify({
+            type: 'chat_joined',
+            data: {
+                room: result.roomName,
+                userCount: result.userCount,
+                history: result.history
+            }
+        }));
+        
+        // Notify room of new user
+        const notification = {
+            type: 'user_joined',
+            data: {
+                username: connection.user?.username || 'GUEST',
+                room: roomName,
+                userCount: result.userCount
+            }
+        };
+        
+        connectedUsers.forEach((conn, id) => {
+            if (conn.ws.readyState === WebSocket.OPEN && id !== sessionId) {
+                conn.ws.send(JSON.stringify(notification));
+            }
+        });
+    }
+}
+
+function handleLeaveChat(sessionId) {
+    const connection = connectedUsers.get(sessionId);
+    if (!connection) return;
+    
+    chatManager.leaveRoom(sessionId);
+    
+    connection.ws.send(JSON.stringify({
+        type: 'chat_left',
+        data: { success: true }
+    }));
 }
 
 function handleAnalytics(sessionId, data) {
@@ -264,11 +386,16 @@ app.post('/api/auth/register', async (req, res) => {
         return res.status(400).json({ message: 'Missing required fields' });
     }
     
+    // Validate password strength
+    if (password.length < 6) {
+        return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+    
     try {
         const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
         
         db.run(`INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)`,
-               [username.toUpperCase(), email, passwordHash], function(err) {
+               [username.toUpperCase(), email, passwordHash], async function(err) {
             if (err) {
                 if (err.message.includes('UNIQUE constraint failed')) {
                     return res.status(409).json({ message: 'Username or email already exists' });
@@ -277,6 +404,14 @@ app.post('/api/auth/register', async (req, res) => {
             }
             
             const token = jwt.sign({ id: this.lastID, username: username.toUpperCase() }, JWT_SECRET);
+            
+            // Send welcome email
+            try {
+                await emailService.sendWelcomeEmail(email, username.toUpperCase());
+            } catch (emailError) {
+                console.error('Failed to send welcome email:', emailError);
+            }
+            
             res.json({
                 message: 'Registration successful',
                 token,
@@ -286,6 +421,88 @@ app.post('/api/auth/register', async (req, res) => {
     } catch (error) {
         res.status(500).json({ message: 'Server error' });
     }
+});
+
+// Password reset request
+app.post('/api/auth/reset-password-request', async (req, res) => {
+    const { email } = req.body;
+    
+    if (!email) {
+        return res.status(400).json({ message: 'Email is required' });
+    }
+    
+    db.get(`SELECT * FROM users WHERE email = ?`, [email], async (err, user) => {
+        if (err) {
+            return res.status(500).json({ message: 'Server error' });
+        }
+        
+        if (!user) {
+            // Don't reveal whether email exists
+            return res.json({ message: 'If email exists, reset link has been sent' });
+        }
+        
+        // Generate reset token
+        const resetToken = require('crypto').randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 3600000); // 1 hour
+        
+        db.run(`INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)`,
+               [user.id, resetToken, expiresAt], async (err) => {
+            if (err) {
+                return res.status(500).json({ message: 'Server error' });
+            }
+            
+            try {
+                await emailService.sendPasswordResetEmail(email, resetToken);
+                res.json({ message: 'If email exists, reset link has been sent' });
+            } catch (emailError) {
+                console.error('Failed to send reset email:', emailError);
+                res.status(500).json({ message: 'Failed to send reset email' });
+            }
+        });
+    });
+});
+
+// Password reset
+app.post('/api/auth/reset-password', async (req, res) => {
+    const { token, newPassword } = req.body;
+    
+    if (!token || !newPassword) {
+        return res.status(400).json({ message: 'Token and new password are required' });
+    }
+    
+    if (newPassword.length < 6) {
+        return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+    
+    db.get(`SELECT * FROM password_reset_tokens WHERE token = ? AND expires_at > datetime('now') AND used = 0`,
+           [token], async (err, tokenRecord) => {
+        if (err) {
+            return res.status(500).json({ message: 'Server error' });
+        }
+        
+        if (!tokenRecord) {
+            return res.status(400).json({ message: 'Invalid or expired token' });
+        }
+        
+        try {
+            const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+            
+            // Update password
+            db.run(`UPDATE users SET password_hash = ? WHERE id = ?`,
+                   [passwordHash, tokenRecord.user_id], (err) => {
+                if (err) {
+                    return res.status(500).json({ message: 'Failed to update password' });
+                }
+                
+                // Mark token as used
+                db.run(`UPDATE password_reset_tokens SET used = 1 WHERE id = ?`, [tokenRecord.id]);
+                
+                res.json({ message: 'Password updated successfully' });
+            });
+        } catch (error) {
+            res.status(500).json({ message: 'Server error' });
+        }
+    });
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -511,6 +728,243 @@ app.post('/api/ai/help', async (req, res) => {
         res.status(500).json({ message: 'Failed to get help response' });
     }
 });
+
+// Door games routes
+app.get('/api/games', (req, res) => {
+    db.all(`SELECT * FROM door_games WHERE active = 1 ORDER BY category, name`, (err, games) => {
+        if (err) {
+            return res.status(500).json({ message: 'Server error' });
+        }
+        res.json(games);
+    });
+});
+
+app.post('/api/games/:id/start', authenticateToken, (req, res) => {
+    const gameId = req.params.id;
+    const userId = req.user.id;
+    
+    // Check if user already has an active session for this game
+    db.get(`SELECT * FROM game_sessions WHERE user_id = ? AND game_id = ? AND status = 'active'`,
+           [userId, gameId], (err, existingSession) => {
+        if (err) {
+            return res.status(500).json({ message: 'Server error' });
+        }
+        
+        if (existingSession) {
+            return res.json({
+                sessionId: existingSession.id,
+                gameData: JSON.parse(existingSession.session_data || '{}'),
+                message: 'Resuming existing game session'
+            });
+        }
+        
+        // Create new game session
+        const initialGameData = { started: true, moves: 0 };
+        
+        db.run(`INSERT INTO game_sessions (user_id, game_id, session_data) VALUES (?, ?, ?)`,
+               [userId, gameId, JSON.stringify(initialGameData)], function(err) {
+            if (err) {
+                return res.status(500).json({ message: 'Failed to start game' });
+            }
+            
+            res.json({
+                sessionId: this.lastID,
+                gameData: initialGameData,
+                message: 'Game started successfully'
+            });
+        });
+    });
+});
+
+app.post('/api/games/sessions/:sessionId/move', authenticateToken, (req, res) => {
+    const sessionId = req.params.sessionId;
+    const { action, data } = req.body;
+    const userId = req.user.id;
+    
+    db.get(`SELECT gs.*, dg.name, dg.command FROM game_sessions gs 
+            JOIN door_games dg ON gs.game_id = dg.id 
+            WHERE gs.id = ? AND gs.user_id = ? AND gs.status = 'active'`,
+           [sessionId, userId], (err, session) => {
+        if (err) {
+            return res.status(500).json({ message: 'Server error' });
+        }
+        
+        if (!session) {
+            return res.status(404).json({ message: 'Game session not found' });
+        }
+        
+        // Parse current game data
+        let gameData = JSON.parse(session.session_data || '{}');
+        gameData.moves = (gameData.moves || 0) + 1;
+        gameData.lastAction = action;
+        gameData.lastActionTime = new Date().toISOString();
+        
+        // Simple game logic based on game type
+        let response = processGameAction(session.command, action, data, gameData);
+        
+        // Update session
+        db.run(`UPDATE game_sessions SET session_data = ?, last_activity = CURRENT_TIMESTAMP WHERE id = ?`,
+               [JSON.stringify(gameData), sessionId], (err) => {
+            if (err) {
+                return res.status(500).json({ message: 'Failed to update game' });
+            }
+            
+            res.json({
+                gameData,
+                response,
+                status: gameData.completed ? 'completed' : 'active'
+            });
+        });
+    });
+});
+
+app.post('/api/games/sessions/:sessionId/end', authenticateToken, (req, res) => {
+    const sessionId = req.params.sessionId;
+    const userId = req.user.id;
+    
+    db.run(`UPDATE game_sessions SET status = 'completed' WHERE id = ? AND user_id = ?`,
+           [sessionId, userId], function(err) {
+        if (err) {
+            return res.status(500).json({ message: 'Server error' });
+        }
+        
+        if (this.changes === 0) {
+            return res.status(404).json({ message: 'Game session not found' });
+        }
+        
+        res.json({ message: 'Game session ended' });
+    });
+});
+
+// Simple game action processor
+function processGameAction(gameCommand, action, data, gameData) {
+    switch (gameCommand) {
+        case 'GUESS':
+            return processGuessGame(action, data, gameData);
+        case 'TREK':
+            return processTrekGame(action, data, gameData);
+        case 'HANGMAN':
+            return processHangmanGame(action, data, gameData);
+        default:
+            return { message: 'Unknown game command', success: false };
+    }
+}
+
+function processGuessGame(action, data, gameData) {
+    if (!gameData.targetNumber) {
+        gameData.targetNumber = Math.floor(Math.random() * 100) + 1;
+        gameData.attempts = 0;
+        return { 
+            message: 'I\'m thinking of a number between 1 and 100. Can you guess it?',
+            prompt: 'Enter your guess:'
+        };
+    }
+    
+    if (action === 'guess') {
+        const guess = parseInt(data.number);
+        gameData.attempts++;
+        
+        if (guess === gameData.targetNumber) {
+            gameData.completed = true;
+            return {
+                message: `Congratulations! You guessed it in ${gameData.attempts} attempts!`,
+                success: true,
+                completed: true
+            };
+        } else if (guess < gameData.targetNumber) {
+            return { message: 'Too low! Try again.', prompt: 'Enter your guess:' };
+        } else {
+            return { message: 'Too high! Try again.', prompt: 'Enter your guess:' };
+        }
+    }
+    
+    return { message: 'Invalid action', success: false };
+}
+
+function processTrekGame(action, data, gameData) {
+    if (!gameData.sector) {
+        gameData.sector = { x: 1, y: 1 };
+        gameData.energy = 100;
+        gameData.klingons = 3;
+        return {
+            message: 'Welcome to Star Trek! You are the captain of the Enterprise.',
+            status: `Sector: ${gameData.sector.x},${gameData.sector.y} | Energy: ${gameData.energy} | Klingons: ${gameData.klingons}`,
+            commands: ['move', 'fire', 'scan', 'status']
+        };
+    }
+    
+    switch (action) {
+        case 'move':
+            gameData.energy -= 10;
+            gameData.sector.x = Math.max(1, Math.min(8, gameData.sector.x + (Math.random() > 0.5 ? 1 : -1)));
+            gameData.sector.y = Math.max(1, Math.min(8, gameData.sector.y + (Math.random() > 0.5 ? 1 : -1)));
+            return {
+                message: `Moved to sector ${gameData.sector.x},${gameData.sector.y}`,
+                status: `Energy: ${gameData.energy} | Klingons: ${gameData.klingons}`
+            };
+        case 'fire':
+            if (Math.random() > 0.6) {
+                gameData.klingons--;
+                gameData.energy -= 5;
+                if (gameData.klingons <= 0) {
+                    gameData.completed = true;
+                    return { message: 'Victory! All Klingons destroyed!', completed: true };
+                }
+                return { message: 'Direct hit! Klingon destroyed.', status: `Klingons remaining: ${gameData.klingons}` };
+            } else {
+                gameData.energy -= 5;
+                return { message: 'Missed!', status: `Energy: ${gameData.energy}` };
+            }
+        default:
+            return { message: 'Unknown command. Available: move, fire, scan, status' };
+    }
+}
+
+function processHangmanGame(action, data, gameData) {
+    if (!gameData.word) {
+        const words = ['COMPUTER', 'BULLETIN', 'MODEM', 'TERMINAL', 'BASIC', 'APPLE'];
+        gameData.word = words[Math.floor(Math.random() * words.length)];
+        gameData.guessed = [];
+        gameData.wrongGuesses = 0;
+        gameData.maxWrong = 6;
+    }
+    
+    if (action === 'guess' && data.letter) {
+        const letter = data.letter.toUpperCase();
+        if (gameData.guessed.includes(letter)) {
+            return { message: 'Already guessed that letter!' };
+        }
+        
+        gameData.guessed.push(letter);
+        
+        if (gameData.word.includes(letter)) {
+            const display = gameData.word.split('').map(l => gameData.guessed.includes(l) ? l : '_').join(' ');
+            if (!display.includes('_')) {
+                gameData.completed = true;
+                return { message: `You won! The word was ${gameData.word}`, completed: true };
+            }
+            return { message: 'Good guess!', word: display };
+        } else {
+            gameData.wrongGuesses++;
+            if (gameData.wrongGuesses >= gameData.maxWrong) {
+                gameData.completed = true;
+                return { message: `Game over! The word was ${gameData.word}`, completed: true };
+            }
+            return { 
+                message: 'Wrong guess!', 
+                wrongGuesses: gameData.wrongGuesses,
+                remaining: gameData.maxWrong - gameData.wrongGuesses
+            };
+        }
+    }
+    
+    const display = gameData.word.split('').map(l => gameData.guessed.includes(l) ? l : '_').join(' ');
+    return { 
+        message: 'Guess a letter!', 
+        word: display, 
+        wrongGuesses: gameData.wrongGuesses 
+    };
+}
 
 // Payment routes
 app.get('/api/plans', (req, res) => {

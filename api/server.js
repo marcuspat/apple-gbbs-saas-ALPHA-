@@ -7,9 +7,18 @@ const app = express();
 // Configuration for Vercel
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Middleware
-app.use(cors());
+// Middleware - Enable CORS for all routes
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false
+}));
+
 app.use(express.json());
+
+// Handle preflight requests
+app.options('*', cors());
 
 // For Vercel deployment, static files are handled differently
 if (!isProduction) {
